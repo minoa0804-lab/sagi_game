@@ -214,6 +214,8 @@ body {
 
 .line2 {
     color: #fff;
+    text-align: left;
+    justify-content: flex-start;
     animation: slideIn 0.4s ease-out forwards;
 }
 

@@ -13,22 +13,35 @@ const gameState = {
     actionStartTime: 0,
 };
 
+// 効果音
+const sounds = {
+    call: new Audio('call.mp3'),
+    correctAnswer: new Audio('correct_answer.mp3'),
+    wrongAnswer: new Audio('wrong_answer.mp3'),
+    ending: new Audio('ending.mp3')
+};
+
+// 音量設定
+Object.values(sounds).forEach(sound => {
+    sound.volume = 0.5;
+});
+
 // スコアリング設定
 const scoringRules = {
     fraud: {
         correct: {
-            fast: { threshold: 0.3, points: 10 },
-            medium: { threshold: 0.7, points: 7 },
-            normal: { threshold: 1.5, points: 4 },
+            fast: { threshold: 0.6, points: 10 },
+            medium: { threshold: 1.2, points: 7 },
+            normal: { threshold: 2.0, points: 4 },
             slow: { threshold: Infinity, points: 1 }
         },
         incorrect: -10
     },
     normal: {
         correct: {
-            fast: { threshold: 0.5, points: 6 },
-            medium: { threshold: 1.0, points: 4 },
-            normal: { threshold: 2.0, points: 2 },
+            fast: { threshold: 0.8, points: 6 },
+            medium: { threshold: 1.5, points: 4 },
+            normal: { threshold: 2.5, points: 2 },
             slow: { threshold: Infinity, points: 1 }
         },
         incorrect: -3
@@ -160,36 +173,51 @@ function nextCall() {
     
     // 1行目を表示
     line1Element.textContent = gameState.currentData.line1;
-    line2Element.textContent = gameState.currentData.line2;
-    line2Element.style.opacity = '0';
+    line2Element.textContent = '';
+    line2Element.style.opacity = '1';
     
-    // ボタンを無効化
-    acceptButton.disabled = true;
-    cutButton.disabled = true;
+    // 出題効果音を再生
+    playSound('call');
+    
+    // ボタンを有効化（常時受け付け）
+    acceptButton.disabled = false;
+    cutButton.disabled = false;
     acceptButton.style.opacity = '1';
     cutButton.style.opacity = '1';
     
-    // 0.7秒後に2行目を表示
+    // 0.7秒後に2行目を一文字ずつ表示
     setTimeout(() => {
-        line2Element.style.opacity = '1';
-        gameState.line2DisplayTime = Date.now();
-        
-        // ボタンを有効化
-        acceptButton.disabled = false;
-        cutButton.disabled = false;
+        displayLine2CharByChar(gameState.currentData.line2);
     }, 700);
+}
+
+// 2行目を一文字ずつ表示
+function displayLine2CharByChar(text) {
+    // 時間計測開始
+    gameState.line2DisplayTime = Date.now();
+    
+    line2Element.textContent = '';
+    let index = 0;
+    const charInterval = 50; // ミリ秒（一文字ずつの間隔）
+    
+    const interval = setInterval(() => {
+        if (index < text.length) {
+            line2Element.textContent += text[index];
+            index++;
+        } else {
+            clearInterval(interval);
+        }
+    }, charInterval);
 }
 
 // プレイヤーのアクション
 function playerAction(action) {
-    if (acceptButton.disabled || cutButton.disabled) return;
-    
-    // 反応時間を計測
-    gameState.responseTime = (Date.now() - gameState.line2DisplayTime) / 1000;
-    
-    // ボタン無効化
+    // ボタン無効化（連続クリック防止）
     acceptButton.disabled = true;
     cutButton.disabled = true;
+    
+    // 反応時間を計測（2行目表示開始からの経過時間）
+    gameState.responseTime = (Date.now() - gameState.line2DisplayTime) / 1000;
     
     // ボタンにビジュアルフィードバック
     if (action === 'accept') {
@@ -259,8 +287,12 @@ function judgeAnswer(action) {
     resultMessage.textContent = messageText;
     resultMessage.style.color = messageColor;
     
-    // 音声フィードバック（可能なら）
-    playSound(isCorrect);
+    // 効果音フィードバック
+    if (isCorrect) {
+        playSound('correctAnswer');
+    } else {
+        playSound('wrongAnswer');
+    }
 }
 
 // スコアポイント計算
@@ -284,32 +316,18 @@ function updateScore() {
     scoreValue.textContent = scoreStr;
 }
 
-// 音声フィードバック
-function playSound(isCorrect) {
+// 効果音を再生
+function playSound(soundName) {
     try {
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-        
-        if (isCorrect) {
-            // 正解音: 高めの周波数で短く
-            oscillator.frequency.value = 800;
-            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
-        } else {
-            // 不正解音: 低めの周波数で短く
-            oscillator.frequency.value = 300;
-            gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+        if (sounds[soundName]) {
+            // 音声を最初から再生
+            sounds[soundName].currentTime = 0;
+            sounds[soundName].play().catch(error => {
+                console.log('音声再生エラー:', error);
+            });
         }
-        
-        oscillator.start(audioContext.currentTime);
-        oscillator.stop(audioContext.currentTime + (isCorrect ? 0.2 : 0.3));
     } catch (e) {
-        // 音声が利用できない場合はスキップ
+        console.log('効果音が利用できません:', e);
     }
 }
 
@@ -324,6 +342,9 @@ function displayResults() {
     document.getElementById('correctCount').textContent = gameState.correctCount;
     document.getElementById('totalCount').textContent = totalQuestions;
     document.getElementById('correctRate').textContent = correctRate;
+    
+    // 結果発表効果音を再生
+    playSound('ending');
     
     // 啓発メッセージを設定
     let educationMessage = '';
