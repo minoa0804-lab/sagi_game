@@ -30,18 +30,18 @@ Object.values(sounds).forEach(sound => {
 const scoringRules = {
     fraud: {
         correct: {
-            fast: { threshold: 2.6, points: 10 },
-            medium: { threshold: 3.2, points: 7 },
-            normal: { threshold: 4.0, points: 4 },
+            fast: { threshold: 1.6, points: 10 },
+            medium: { threshold: 2.2, points: 7 },
+            normal: { threshold: 3.0, points: 4 },
             slow: { threshold: Infinity, points: 1 }
         },
         incorrect: -10
     },
     normal: {
         correct: {
-            fast: { threshold: 2.8, points: 6 },
-            medium: { threshold: 3.5, points: 4 },
-            normal: { threshold: 4.5, points: 2 },
+            fast: { threshold: 1.8, points: 6 },
+            medium: { threshold: 2.5, points: 4 },
+            normal: { threshold: 3.5, points: 2 },
             slow: { threshold: Infinity, points: 1 }
         },
         incorrect: -3
