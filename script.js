@@ -26,30 +26,87 @@ Object.values(sounds).forEach(sound => {
     sound.volume = 0.5;
 });
 
-// スコアリング設定
-const scoringRules = {
-    fraud: {
-        correct: {
-            fast: { threshold: 1.6, points: 10 },
-            medium: { threshold: 2.2, points: 7 },
-            normal: { threshold: 3.0, points: 4 },
-            slow: { threshold: Infinity, points: 1 }
+// 難易度設定
+const difficultySettings = {
+    easy: {
+        totalCalls: 10,
+        fraudRatio: 0.7,  // 詐欺70%、普通30%
+        scoringRules: {
+            fraud: {
+                correct: {
+                    fast: { threshold: 2.4, points: 8 },
+                    medium: { threshold: 3.0, points: 6 },
+                    normal: { threshold: 3.8, points: 3 },
+                    slow: { threshold: Infinity, points: 1 }
+                },
+                incorrect: -8
+            },
+            normal: {
+                correct: {
+                    fast: { threshold: 2.6, points: 5 },
+                    medium: { threshold: 3.3, points: 3 },
+                    normal: { threshold: 4.3, points: 2 },
+                    slow: { threshold: Infinity, points: 1 }
+                },
+                incorrect: -2
+            }
         },
-        incorrect: -10
+        rankThresholds: { S: 80, A: 60, B: 40, C: 20 }
     },
     normal: {
-        correct: {
-            fast: { threshold: 1.8, points: 6 },
-            medium: { threshold: 2.5, points: 4 },
-            normal: { threshold: 3.5, points: 2 },
-            slow: { threshold: Infinity, points: 1 }
+        totalCalls: 15,
+        fraudRatio: 0.625,  // 詐欺62.5%、普通37.5%
+        scoringRules: {
+            fraud: {
+                correct: {
+                    fast: { threshold: 1.6, points: 10 },
+                    medium: { threshold: 2.2, points: 7 },
+                    normal: { threshold: 3.0, points: 4 },
+                    slow: { threshold: Infinity, points: 1 }
+                },
+                incorrect: -10
+            },
+            normal: {
+                correct: {
+                    fast: { threshold: 1.8, points: 6 },
+                    medium: { threshold: 2.5, points: 4 },
+                    normal: { threshold: 3.5, points: 2 },
+                    slow: { threshold: Infinity, points: 1 }
+                },
+                incorrect: -3
+            }
         },
-        incorrect: -3
+        rankThresholds: { S: 120, A: 90, B: 60, C: 30 }
     },
-    other: {
-        points: 0
+    hard: {
+        totalCalls: 20,
+        fraudRatio: 0.5,  // 詐欺50%、普通50%
+        scoringRules: {
+            fraud: {
+                correct: {
+                    fast: { threshold: 1.2, points: 12 },
+                    medium: { threshold: 1.8, points: 9 },
+                    normal: { threshold: 2.4, points: 6 },
+                    slow: { threshold: Infinity, points: 2 }
+                },
+                incorrect: -12
+            },
+            normal: {
+                correct: {
+                    fast: { threshold: 1.4, points: 8 },
+                    medium: { threshold: 2.0, points: 6 },
+                    normal: { threshold: 2.8, points: 3 },
+                    slow: { threshold: Infinity, points: 1 }
+                },
+                incorrect: -5
+            }
+        },
+        rankThresholds: { S: 180, A: 140, B: 100, C: 60 }
     }
 };
+
+// スコアリング設定（デフォルト）
+const scoringRules = difficultySettings.normal.scoringRules;
 
 // UI要素の取得
 const titleScreen = document.getElementById('titleScreen');
@@ -70,6 +127,18 @@ startButton.addEventListener('click', startGame);
 acceptButton.addEventListener('click', () => playerAction('accept'));
 cutButton.addEventListener('click', () => playerAction('cut'));
 restartButton.addEventListener('click', restartGame);
+
+// 難易度ボタンのイベントリスナー
+document.querySelectorAll('.difficulty-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        // 選択状態を更新
+        document.querySelectorAll('.difficulty-btn').forEach(b => b.classList.remove('selected'));
+        e.target.classList.add('selected');
+        
+        // 難易度を設定
+        gameState.difficulty = e.target.dataset.difficulty;
+    });
+});
 
 // CSVをパースする（カンマ区切り、ダブルクォートに対応）
 function parseCSVLine(line) {
@@ -143,10 +212,19 @@ function getFallbackData() {
 
 // ゲーム開始
 function startGame() {
+    const settings = difficultySettings[gameState.difficulty];
+    
     gameState.score = 0;
     gameState.callCount = 0;
     gameState.correctCount = 0;
-    gameState.totalCalls = 15;
+    gameState.totalCalls = settings.totalCalls;
+    gameState.fraudRatio = settings.fraudRatio;
+    
+    // 難易度に応じてスコアリング設定を更新
+    Object.assign(scoringRules.fraud.correct, settings.scoringRules.fraud.correct);
+    scoringRules.fraud.incorrect = settings.scoringRules.fraud.incorrect;
+    Object.assign(scoringRules.normal.correct, settings.scoringRules.normal.correct);
+    scoringRules.normal.incorrect = settings.scoringRules.normal.incorrect;
     
     showScreen('game');
     nextCall();
@@ -162,8 +240,18 @@ function nextCall() {
         return;
     }
     
-    // ランダムにデータを選択
-    gameState.currentData = gameState.allData[Math.floor(Math.random() * gameState.allData.length)];
+    // 難易度に応じて問題を選択
+    let gameData = gameState.allData;
+    
+    // 詐欺と普通の電話を分離
+    const fraudData = gameData.filter(d => d.category === 'fraud');
+    const normalData = gameData.filter(d => d.category === 'normal');
+    
+    // 難易度に応じた割合で選択
+    let isFraud = Math.random() < gameState.fraudRatio;
+    let selectedPool = isFraud ? fraudData : normalData;
+    
+    gameState.currentData = selectedPool[Math.floor(Math.random() * selectedPool.length)];
     
     // UI更新
     callCountElement.textContent = gameState.callCount;
@@ -361,10 +449,12 @@ function displayResults() {
 
 // ランク計算
 function calculateRank(score) {
-    if (score >= 120) return 'S';
-    if (score >= 90) return 'A';
-    if (score >= 60) return 'B';
-    if (score >= 30) return 'C';
+    const thresholds = difficultySettings[gameState.difficulty].rankThresholds;
+    
+    if (score >= thresholds.S) return 'S';
+    if (score >= thresholds.A) return 'A';
+    if (score >= thresholds.B) return 'B';
+    if (score >= thresholds.C) return 'C';
     return 'D';
 }
 
