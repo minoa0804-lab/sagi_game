@@ -29,7 +29,7 @@ Object.values(sounds).forEach(sound => {
 // 難易度設定
 const difficultySettings = {
     easy: {
-        totalCalls: 10,
+        totalCalls: 15,
         fraudRatio: 0.7,  // 詐欺70%、普通30%
         scoringRules: {
             fraud: {
@@ -79,7 +79,7 @@ const difficultySettings = {
         rankThresholds: { S: 120, A: 90, B: 60, C: 30 }
     },
     hard: {
-        totalCalls: 20,
+        totalCalls: 15,
         fraudRatio: 0.5,  // 詐欺50%、普通50%
         scoringRules: {
             fraud: {
