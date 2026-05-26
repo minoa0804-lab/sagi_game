@@ -11,6 +11,10 @@ const gameState = {
     responseTime: 0,
     line2DisplayTime: 0,
     actionStartTime: 0,
+    canAnswer: false,
+    line2TimeoutId: null,
+    line2IntervalId: null,
+    nextCallTimeoutId: null,
 };
 
 // 効果音
@@ -163,23 +167,65 @@ function parseCSVLine(line) {
     return result;
 }
 
+function validateCallData(row, rowNumber) {
+    const [id, category, line1, line2, correct_action] = row;
+    const validCategories = ['fraud', 'normal', 'other'];
+    const validActions = ['cut', 'accept', 'either'];
+
+    if (row.length !== 5) {
+        throw new Error(`${rowNumber}行目: CSVの列数が不正です`);
+    }
+
+    if (!id || Number.isNaN(Number(id))) {
+        throw new Error(`${rowNumber}行目: idが不正です`);
+    }
+
+    if (!validCategories.includes(category)) {
+        throw new Error(`${rowNumber}行目: categoryが不正です`);
+    }
+
+    if (!line1 || !line2) {
+        throw new Error(`${rowNumber}行目: 表示テキストが空です`);
+    }
+
+    if (!validActions.includes(correct_action)) {
+        throw new Error(`${rowNumber}行目: correct_actionが不正です`);
+    }
+
+    return {
+        id: Number(id),
+        category,
+        line1,
+        line2,
+        correct_action
+    };
+}
+
 // CSVデータを読み込む
 async function loadCSVData() {
     try {
         const response = await fetch('data.csv');
+        if (!response.ok) {
+            throw new Error(`data.csvの取得に失敗しました: ${response.status}`);
+        }
+
         const text = await response.text();
-        const lines = text.trim().split('\n');
-        
-        gameState.allData = lines.slice(1).map((line) => {
-            const [id, category, line1, line2, correct_action] = parseCSVLine(line);
-            return {
-                id: parseInt(id),
-                category: category,
-                line1: line1,
-                line2: line2,
-                correct_action: correct_action
-            };
+        const lines = text.trim().split(/\r?\n/).filter(Boolean);
+
+        if (lines.length < 2) {
+            throw new Error('data.csvに問題データがありません');
+        }
+
+        gameState.allData = lines.slice(1).map((line, index) => {
+            return validateCallData(parseCSVLine(line), index + 2);
         });
+
+        const hasFraud = gameState.allData.some(d => d.category === 'fraud');
+        const hasNormal = gameState.allData.some(d => d.category === 'normal');
+
+        if (!hasFraud || !hasNormal) {
+            throw new Error('data.csvにはfraudとnormalの両方が必要です');
+        }
         
         console.log(`読み込み完了: ${gameState.allData.length}件のデータ`);
     } catch (error) {
@@ -210,9 +256,35 @@ function getFallbackData() {
     ];
 }
 
+function clearPendingTimers() {
+    if (gameState.line2TimeoutId !== null) {
+        clearTimeout(gameState.line2TimeoutId);
+        gameState.line2TimeoutId = null;
+    }
+
+    if (gameState.line2IntervalId !== null) {
+        clearInterval(gameState.line2IntervalId);
+        gameState.line2IntervalId = null;
+    }
+
+    if (gameState.nextCallTimeoutId !== null) {
+        clearTimeout(gameState.nextCallTimeoutId);
+        gameState.nextCallTimeoutId = null;
+    }
+}
+
+function setAnswerButtonsEnabled(enabled) {
+    gameState.canAnswer = enabled;
+    acceptButton.disabled = !enabled;
+    cutButton.disabled = !enabled;
+    acceptButton.style.opacity = enabled ? '1' : '0.5';
+    cutButton.style.opacity = enabled ? '1' : '0.5';
+}
+
 // ゲーム開始
 function startGame() {
     const settings = difficultySettings[gameState.difficulty];
+    clearPendingTimers();
     
     gameState.score = 0;
     gameState.callCount = 0;
@@ -232,9 +304,11 @@ function startGame() {
 
 // 次の電話へ
 function nextCall() {
+    clearPendingTimers();
     gameState.callCount++;
     
     if (gameState.callCount > gameState.totalCalls) {
+        setAnswerButtonsEnabled(false);
         showScreen('result');
         displayResults();
         return;
@@ -250,6 +324,9 @@ function nextCall() {
     // 難易度に応じた割合で選択
     let isFraud = Math.random() < gameState.fraudRatio;
     let selectedPool = isFraud ? fraudData : normalData;
+    if (selectedPool.length === 0) {
+        selectedPool = isFraud ? normalData : fraudData;
+    }
     
     gameState.currentData = selectedPool[Math.floor(Math.random() * selectedPool.length)];
     
@@ -263,18 +340,17 @@ function nextCall() {
     line1Element.textContent = gameState.currentData.line1;
     line2Element.textContent = '';
     line2Element.style.opacity = '1';
+    gameState.line2DisplayTime = 0;
     
     // 出題効果音を再生
     playSound('call');
     
-    // ボタンを有効化（常時受け付け）
-    acceptButton.disabled = false;
-    cutButton.disabled = false;
-    acceptButton.style.opacity = '1';
-    cutButton.style.opacity = '1';
+    // 2行目が表示されるまで回答を受け付けない
+    setAnswerButtonsEnabled(false);
     
     // 0.7秒後に2行目を一文字ずつ表示
-    setTimeout(() => {
+    gameState.line2TimeoutId = setTimeout(() => {
+        gameState.line2TimeoutId = null;
         displayLine2CharByChar(gameState.currentData.line2);
     }, 700);
 }
@@ -287,22 +363,29 @@ function displayLine2CharByChar(text) {
     line2Element.textContent = '';
     let index = 0;
     const charInterval = 50; // ミリ秒（一文字ずつの間隔）
+
+    setAnswerButtonsEnabled(true);
     
-    const interval = setInterval(() => {
+    gameState.line2IntervalId = setInterval(() => {
         if (index < text.length) {
             line2Element.textContent += text[index];
             index++;
         } else {
-            clearInterval(interval);
+            clearInterval(gameState.line2IntervalId);
+            gameState.line2IntervalId = null;
         }
     }, charInterval);
 }
 
 // プレイヤーのアクション
 function playerAction(action) {
+    if (!gameState.canAnswer || !gameState.currentData) {
+        return;
+    }
+
     // ボタン無効化（連続クリック防止）
-    acceptButton.disabled = true;
-    cutButton.disabled = true;
+    setAnswerButtonsEnabled(false);
+    clearPendingTimers();
     
     // 反応時間を計測（2行目表示開始からの経過時間）
     gameState.responseTime = (Date.now() - gameState.line2DisplayTime) / 1000;
@@ -310,17 +393,17 @@ function playerAction(action) {
     // ボタンにビジュアルフィードバック
     if (action === 'accept') {
         acceptButton.style.opacity = '0.6';
-        setTimeout(() => { acceptButton.style.opacity = '1'; }, 200);
+        setTimeout(() => { acceptButton.style.opacity = gameState.canAnswer ? '1' : '0.5'; }, 200);
     } else {
         cutButton.style.opacity = '0.6';
-        setTimeout(() => { cutButton.style.opacity = '1'; }, 200);
+        setTimeout(() => { cutButton.style.opacity = gameState.canAnswer ? '1' : '0.5'; }, 200);
     }
     
     // 判定とスコア計算
     judgeAnswer(action);
     
     // 次の電話へ
-    setTimeout(nextCall, 1500);
+    gameState.nextCallTimeoutId = setTimeout(nextCall, 1500);
 }
 
 // 回答を判定
@@ -479,10 +562,13 @@ function showScreen(screenName) {
 
 // ゲームをリスタート
 function restartGame() {
+    clearPendingTimers();
     showScreen('title');
     gameState.score = 0;
     gameState.callCount = 0;
     gameState.correctCount = 0;
+    gameState.currentData = null;
+    setAnswerButtonsEnabled(false);
     updateScore();
 }
 
