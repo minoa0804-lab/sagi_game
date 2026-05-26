@@ -358,6 +358,7 @@ body {
     font-size: 13px;
     color: #ddd;
     line-height: 1.8;
+    white-space: pre-line;
 }
 
 .restart-button {

@@ -7,6 +7,7 @@ const gameState = {
     correctCount: 0,
     currentData: null,
     allData: [],
+    questionQueue: [],
     difficulty: 'normal',
     responseTime: 0,
     line2DisplayTime: 0,
@@ -281,6 +282,46 @@ function setAnswerButtonsEnabled(enabled) {
     cutButton.style.opacity = enabled ? '1' : '0.5';
 }
 
+function shuffleArray(items) {
+    const shuffled = [...items];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+}
+
+function buildQuestionQueue() {
+    const settings = difficultySettings[gameState.difficulty];
+    const fraudData = shuffleArray(gameState.allData.filter(d => d.category === 'fraud'));
+    const normalData = shuffleArray(gameState.allData.filter(d => d.category === 'normal'));
+
+    if (fraudData.length === 0 || normalData.length === 0) {
+        gameState.questionQueue = shuffleArray(gameState.allData).slice(0, gameState.totalCalls);
+        return;
+    }
+
+    const fraudCount = Math.min(
+        fraudData.length,
+        Math.round(settings.totalCalls * settings.fraudRatio)
+    );
+    const normalCount = Math.min(
+        normalData.length,
+        settings.totalCalls - fraudCount
+    );
+
+    let selected = [
+        ...fraudData.slice(0, fraudCount),
+        ...normalData.slice(0, normalCount)
+    ];
+
+    const selectedIds = new Set(selected.map(item => item.id));
+    const remaining = shuffleArray(gameState.allData.filter(item => !selectedIds.has(item.id)));
+
+    selected = selected.concat(remaining.slice(0, settings.totalCalls - selected.length));
+    gameState.questionQueue = shuffleArray(selected);
+}
+
 // ゲーム開始
 function startGame() {
     const settings = difficultySettings[gameState.difficulty];
@@ -291,12 +332,15 @@ function startGame() {
     gameState.correctCount = 0;
     gameState.totalCalls = settings.totalCalls;
     gameState.fraudRatio = settings.fraudRatio;
+    gameState.questionQueue = [];
     
     // 難易度に応じてスコアリング設定を更新
     Object.assign(scoringRules.fraud.correct, settings.scoringRules.fraud.correct);
     scoringRules.fraud.incorrect = settings.scoringRules.fraud.incorrect;
     Object.assign(scoringRules.normal.correct, settings.scoringRules.normal.correct);
     scoringRules.normal.incorrect = settings.scoringRules.normal.incorrect;
+    buildQuestionQueue();
+    gameState.totalCalls = gameState.questionQueue.length;
     
     showScreen('game');
     nextCall();
@@ -314,21 +358,13 @@ function nextCall() {
         return;
     }
     
-    // 難易度に応じて問題を選択
-    let gameData = gameState.allData;
-    
-    // 詐欺と普通の電話を分離
-    const fraudData = gameData.filter(d => d.category === 'fraud');
-    const normalData = gameData.filter(d => d.category === 'normal');
-    
-    // 難易度に応じた割合で選択
-    let isFraud = Math.random() < gameState.fraudRatio;
-    let selectedPool = isFraud ? fraudData : normalData;
-    if (selectedPool.length === 0) {
-        selectedPool = isFraud ? normalData : fraudData;
+    gameState.currentData = gameState.questionQueue.shift();
+    if (!gameState.currentData) {
+        setAnswerButtonsEnabled(false);
+        showScreen('result');
+        displayResults();
+        return;
     }
-    
-    gameState.currentData = selectedPool[Math.floor(Math.random() * selectedPool.length)];
     
     // UI更新
     callCountElement.textContent = gameState.callCount;
